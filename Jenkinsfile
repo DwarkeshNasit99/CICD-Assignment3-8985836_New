@@ -232,39 +232,80 @@ pipeline {
                         az functionapp config show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --query "{nodeVersion:nodeVersion,appSettings:appSettings}" --output json || echo Failed to get config
                     """
                     
-                    // Wait for function to be ready and test it (Windows PowerShell)
+                    // Wait for function deployment to complete (Windows PowerShell with retry logic)
                     powershell '''
-                        Write-Host "Waiting for function to be ready..."
-                        Start-Sleep -Seconds 30
+                        Write-Host "🕒 Azure Functions deployment typically takes 3-5 minutes after 202 response..."
+                        Write-Host "Starting extended wait and retry process..."
                         
-                        # Get function URL
-                        try {
-                            $functionUrl = az functionapp function show --resource-group $env:RESOURCE_GROUP --name $env:FUNCTION_APP_NAME --function-name httpTrigger --query "invokeUrlTemplate" --output tsv 2>$null
+                        $maxAttempts = 10
+                        $waitSeconds = 30
+                        $attempt = 1
+                        $success = $false
+                        
+                        while ($attempt -le $maxAttempts -and -not $success) {
+                            Write-Host "⏳ Attempt $attempt of $maxAttempts - Waiting $waitSeconds seconds before checking..."
+                            Start-Sleep -Seconds $waitSeconds
                             
-                            if ($functionUrl -and $functionUrl -ne "") {
-                                Write-Host "Testing function at: $functionUrl"
+                            Write-Host "🔍 Checking if httpTrigger function is deployed..."
+                            
+                            try {
+                                # First check if function exists in the function app
+                                $functions = az functionapp function list --name $env:FUNCTION_APP_NAME --resource-group $env:RESOURCE_GROUP --output json | ConvertFrom-Json
                                 
-                                # Test the function
-                                try {
-                                    $response = Invoke-WebRequest -Uri $functionUrl -Method GET -UseBasicParsing
-                                    $httpStatus = $response.StatusCode
+                                if ($functions -and $functions.Count -gt 0) {
+                                    $httpTriggerFunction = $functions | Where-Object { $_.name -eq "httpTrigger" }
                                     
-                                    if ($httpStatus -eq 200) {
-                                        Write-Host "✅ Function is responding correctly (HTTP $httpStatus)"
-                                        Write-Host "Function response:"
-                                        Write-Host $response.Content.Substring(0, [Math]::Min(500, $response.Content.Length))
+                                    if ($httpTriggerFunction) {
+                                        Write-Host "✅ httpTrigger function found! Getting URL..."
+                                        
+                                        # Get function URL
+                                        $functionUrl = az functionapp function show --resource-group $env:RESOURCE_GROUP --name $env:FUNCTION_APP_NAME --function-name httpTrigger --query "invokeUrlTemplate" --output tsv 2>$null
+                                        
+                                        if ($functionUrl -and $functionUrl -ne "") {
+                                            Write-Host "🌐 Function URL: $functionUrl"
+                                            Write-Host "🧪 Testing function..."
+                                            
+                                            try {
+                                                $response = Invoke-WebRequest -Uri $functionUrl -Method GET -UseBasicParsing -TimeoutSec 30
+                                                $httpStatus = $response.StatusCode
+                                                
+                                                if ($httpStatus -eq 200) {
+                                                    Write-Host "🎉 SUCCESS! Function is responding correctly (HTTP $httpStatus)"
+                                                    Write-Host "📝 Function response:"
+                                                    Write-Host $response.Content.Substring(0, [Math]::Min(500, $response.Content.Length))
+                                                    $success = $true
+                                                } else {
+                                                    Write-Host "⚠️ Function returned HTTP status: $httpStatus (attempt $attempt)"
+                                                }
+                                            } catch {
+                                                Write-Host "⚠️ Error testing function: $($_.Exception.Message) (attempt $attempt)"
+                                            }
+                                        } else {
+                                            Write-Host "⚠️ Could not retrieve function URL (attempt $attempt)"
+                                        }
                                     } else {
-                                        Write-Host "⚠️ Function returned HTTP status: $httpStatus"
-                                        Write-Host "This might be normal if the function is still warming up"
+                                        Write-Host "⚠️ httpTrigger function not found in function list (attempt $attempt)"
+                                        Write-Host "📋 Available functions: $($functions | ForEach-Object { $_.name } | Join-String -Separator ", ")"
                                     }
-                                } catch {
-                                    Write-Host "⚠️ Error testing function: $($_.Exception.Message)"
+                                } else {
+                                    Write-Host "⚠️ No functions found in function app yet (attempt $attempt)"
                                 }
-                            } else {
-                                Write-Host "⚠️ Could not retrieve function URL for testing"
+                            } catch {
+                                Write-Host "⚠️ Error checking functions: $($_.Exception.Message) (attempt $attempt)"
                             }
-                        } catch {
-                            Write-Host "⚠️ Error getting function URL: $($_.Exception.Message)"
+                            
+                            if (-not $success) {
+                                $attempt++
+                                if ($attempt -le $maxAttempts) {
+                                    Write-Host "⏭️ Trying again in $waitSeconds seconds..."
+                                }
+                            }
+                        }
+                        
+                        if (-not $success) {
+                            Write-Host "❌ Function deployment verification failed after $maxAttempts attempts"
+                            Write-Host "💡 This might be normal - Azure deployments can take longer than expected"
+                            Write-Host "🔧 Check Azure Portal manually or wait a few more minutes and test manually"
                         }
                     '''
                     
@@ -289,7 +330,24 @@ pipeline {
         always {
             echo '🧹 Cleaning up workspace...'
             
+            // TEMPORARILY COMMENTED OUT - Testing deployment timing
             // Clean up deployment files - wrap in node context
+            script {
+                echo "⚠️ Cleanup temporarily disabled to test Azure deployment timing"
+                echo "Deploy folder and zip file will remain for debugging"
+                
+                try {
+                    // Archive logs only
+                    if (fileExists('npm-debug.log')) {
+                        archiveArtifacts artifacts: 'npm-debug.log', allowEmptyArchive: true
+                    }
+                } catch (Exception e) {
+                    echo "Archiving failed: ${e.message}"
+                }
+            }
+            
+            /*
+            // ORIGINAL CLEANUP CODE - RE-ENABLE LATER
             script {
                 try {
                     node {
@@ -307,6 +365,7 @@ pipeline {
                     echo "Cleanup failed: ${e.message}"
                 }
             }
+            */
         }
         
         success {
