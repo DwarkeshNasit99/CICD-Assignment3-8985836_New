@@ -4,7 +4,7 @@
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "node",
     "AZURE_FUNCTIONS_ENVIRONMENT": "local",
-    "WEBSITE_NODE_DEFAULT_VERSION": "~18"
+    "WEBSITE_NODE_DEFAULT_VERSION": "20"
   },
   "Host": {
     "LocalHttpPort": 7071,

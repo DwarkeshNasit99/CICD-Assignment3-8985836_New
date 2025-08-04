@@ -107,7 +107,7 @@ pipeline {
                     // Copy necessary files for deployment (Windows commands with /Y flag for non-interactive)
                     // NOTE: We DON'T copy node_modules - Azure will install dependencies from package.json
                     bat '''
-                        xcopy /s /e /i /y src deploy\\src
+                        xcopy /s /e /i /y httpTrigger deploy\\httpTrigger
                         copy /y package.json deploy\\
                         copy /y host.json deploy\\
                         echo "Skipping node_modules - Azure will install dependencies from package.json during deployment"
