@@ -13,7 +13,7 @@ pipeline {
         FUNCTION_APP_NAME = credentials('azure-function-app-name')
         
         // Node.js version
-        NODEJS_VERSION = '18'
+        NODEJS_VERSION = '20'
         
         // Deployment package name
         DEPLOYMENT_PACKAGE = 'function-deployment.zip'
