@@ -2,15 +2,15 @@ pipeline {
     agent any
     
     environment {
-        // Azure credentials - configure these in Jenkins credentials
-        AZURE_CLIENT_ID = credentials('azure-client-id')
-        AZURE_CLIENT_SECRET = credentials('azure-client-secret') 
-        AZURE_TENANT_ID = credentials('azure-tenant-id')
-        AZURE_SUBSCRIPTION_ID = credentials('azure-subscription-id')
+        // Azure credentials - using your Jenkins credential IDs
+        AZURE_CLIENT_ID = credentials('AZURE_CLIENT_ID')
+        AZURE_CLIENT_SECRET = credentials('AZURE_CLIENT_SECRET') 
+        AZURE_TENANT_ID = credentials('AZURE_TENANT_ID')
+        AZURE_SUBSCRIPTION_ID = credentials('AZURE_SUBSCRIPTION_ID')
         
-        // Azure Function App details - update these with your actual values
-        RESOURCE_GROUP = credentials('azure-resource-group')
-        FUNCTION_APP_NAME = credentials('azure-function-app-name')
+        // Azure Function App details - using your Jenkins credential IDs
+        RESOURCE_GROUP = credentials('AZURE_RESOURCE_GROUP')
+        FUNCTION_APP_NAME = credentials('AZURE_FUNCTION_APP_NAME')
         
         // Node.js version
         NODEJS_VERSION = '20'
@@ -294,10 +294,10 @@ pipeline {
             script {
                 try {
                     node {
-                        bat '''
-                            if exist %DEPLOYMENT_PACKAGE% del /q %DEPLOYMENT_PACKAGE%
+                        bat """
+                            if exist ${DEPLOYMENT_PACKAGE} del /q ${DEPLOYMENT_PACKAGE}
                             if exist deploy rmdir /s /q deploy
-                        '''
+                        """
                         
                         // Archive logs
                         if (fileExists('npm-debug.log')) {
