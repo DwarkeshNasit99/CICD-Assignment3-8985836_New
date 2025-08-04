@@ -181,16 +181,11 @@ pipeline {
                 success {
                     echo '✅ Deploy stage completed successfully'
                     script {
-                        // Get the function URL for verification
+                        // Get the function URL for verification (Windows)
                         try {
-                            def functionUrl = sh(
+                            def functionUrl = bat(
                                 script: """
-                                    az functionapp function show \\
-                                        --resource-group ${RESOURCE_GROUP} \\
-                                        --name ${FUNCTION_APP_NAME} \\
-                                        --function-name httpTrigger \\
-                                        --query "invokeUrlTemplate" \\
-                                        --output tsv 2>/dev/null || echo "URL not available"
+                                    az functionapp function show --resource-group ${RESOURCE_GROUP} --name ${FUNCTION_APP_NAME} --function-name httpTrigger --query "invokeUrlTemplate" --output tsv 2>nul || echo URL not available
                                 """,
                                 returnStdout: true
                             ).trim()
