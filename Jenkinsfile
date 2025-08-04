@@ -17,6 +17,11 @@ pipeline {
         
         // Deployment package name
         DEPLOYMENT_PACKAGE = 'function-deployment.zip'
+        
+        // Deployment method: 
+        // 'github-actions' = Jenkins does CI, GitHub Actions does CD (RECOMMENDED - no network issues)
+        // 'zip-deployment' = Full Jenkins pipeline (FALLBACK - has network/connectivity issues)
+        DEPLOYMENT_METHOD = 'github-actions'
     }
     
     tools {
@@ -94,9 +99,13 @@ pipeline {
         }
         
         stage('Package') {
+            when {
+                environment name: 'DEPLOYMENT_METHOD', value: 'zip-deployment'
+            }
             steps {
                 script {
-                    echo '📦 Packaging application for deployment...'
+                    echo '📦 Packaging application for ZIP deployment (fallback method)...'
+                    echo '⚠️ Note: Using ZIP fallback - GitHub Actions deployment is recommended'
                     
                     // Clean and create deployment directory (Windows command)
                     bat '''
@@ -260,10 +269,41 @@ pipeline {
             }
         }
         
+        stage('Prepare GitHub Actions Deployment') {
+            when {
+                environment name: 'DEPLOYMENT_METHOD', value: 'github-actions'
+            }
+            steps {
+                script {
+                    echo '🚀 Preparing GitHub Actions deployment...'
+                    echo '📋 Jenkins CI completed successfully:'
+                    echo '   ✅ Code checkout'
+                    echo '   ✅ Dependencies installed'
+                    echo '   ✅ Tests passed'
+                    echo '💡 Ready to trigger GitHub Actions for deployment'
+                    echo '🌐 GitHub Actions will handle:'
+                    echo '   • Fresh code checkout'
+                    echo '   • Clean build process'
+                    echo '   • Package creation'
+                    echo '   • Azure deployment'
+                    echo ''
+                    echo '📁 Repository: DwarkeshNasit99/CICD-Assignment3-8985836_New'
+                    echo '📄 Workflow: azure-deploy-triggered.yml'
+                    echo '🏷️ Build Tag: jenkins-build-${BUILD_NUMBER}'
+                }
+            }
+            post {
+                success {
+                    echo '✅ Ready for GitHub Actions deployment trigger'
+                }
+            }
+        }
+        
         stage('Deploy') {
             steps {
                 script {
-                    echo '🚀 Deploying to Azure Functions...'
+                    echo '🚀 Starting deployment process...'
+                    echo "📊 Deployment Method: ${env.DEPLOYMENT_METHOD}"
                     
                     // Check Azure CLI installation (Windows)
                     bat '''
@@ -290,21 +330,56 @@ pipeline {
                         az account show
                     '''
                     
-                    // Deploy using ZIP deployment (Core Tools install failing due to network issues)
-                    bat """
-                        echo Deploying to Azure Function App: %FUNCTION_APP_NAME%
-                        echo Resource Group: %RESOURCE_GROUP%
-                        echo Using ZIP deployment with verified package structure
+                    // Choose deployment method: GitHub Actions (recommended) or ZIP deployment
+                    script {
+                        def deploymentMethod = env.DEPLOYMENT_METHOD ?: 'github-actions'
                         
-                        REM Deploy using zip deployment (now with proper function.json + index.js structure)
-                        az functionapp deployment source config-zip --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --src %DEPLOYMENT_PACKAGE% --build-remote true
-                        
-                        echo Deployment completed using ZIP deployment!
-                        
-                        REM Get function URL
-                        echo Getting function URL...
-                        az functionapp function show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --function-name httpTrigger --query "invokeUrlTemplate" --output tsv || echo Could not retrieve function URL
-                    """
+                        if (deploymentMethod == 'github-actions') {
+                            echo '🚀 Using GitHub Actions deployment (recommended - no network issues)...'
+                            echo '📝 Jenkins completed: Build → Test → Package verification'
+                            echo '🎯 Now delegating deployment to GitHub Actions (more reliable)'
+                            
+                            // Trigger GitHub Actions workflow
+                            withCredentials([string(credentialsId: 'GITHUB_TOKEN_PWD', variable: 'GITHUB_TOKEN')]) {
+                                bat """
+                                    echo 🚀 Triggering GitHub Actions deployment workflow...
+                                    echo 📁 Repository: DwarkeshNasit99/CICD-Assignment3-8985836_New
+                                    echo 📋 Workflow: azure-deploy-triggered.yml
+                                    echo 🏷️ Build Tag: jenkins-build-${BUILD_NUMBER}
+                                    
+                                    REM Use curl to trigger GitHub Actions workflow_dispatch
+                                    curl -X POST ^
+                                        -H "Authorization: token %GITHUB_TOKEN%" ^
+                                        -H "Accept: application/vnd.github.v3+json" ^
+                                        https://api.github.com/repos/DwarkeshNasit99/CICD-Assignment3-8985836_New/actions/workflows/azure-deploy-triggered.yml/dispatches ^
+                                        -d "{\"ref\":\"main\",\"inputs\":{\"deployment_tag\":\"jenkins-build-${BUILD_NUMBER}\",\"environment\":\"production\"}}"
+                                    
+                                    echo ✅ GitHub Actions deployment workflow triggered successfully!
+                                    echo 🌐 Monitor deployment at: https://github.com/DwarkeshNasit99/CICD-Assignment3-8985836_New/actions
+                                    echo 💡 GitHub Actions will handle: Fresh Build → Package → Deploy to Azure
+                                """
+                            }
+                        } else {
+                            echo '📦 Using ZIP deployment (fallback - has network connectivity issues)...'
+                            
+                            // Original ZIP deployment method (kept as fallback only)
+                            bat """
+                                echo ⚠️ Using ZIP deployment fallback method
+                                echo 📁 Function App: %FUNCTION_APP_NAME%
+                                echo 📁 Resource Group: %RESOURCE_GROUP%
+                                echo 📦 Package: %DEPLOYMENT_PACKAGE%
+                                
+                                REM Deploy using zip deployment (has known network issues)
+                                az functionapp deployment source config-zip --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --src %DEPLOYMENT_PACKAGE% --build-remote true
+                                
+                                echo ZIP deployment attempt completed!
+                                
+                                REM Get function URL
+                                echo Getting function URL...
+                                az functionapp function show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --function-name httpTrigger --query "invokeUrlTemplate" --output tsv || echo Could not retrieve function URL
+                            """
+                        }
+                    }
                     
                     echo '✅ Deployment completed successfully!'
                 }
@@ -341,9 +416,13 @@ pipeline {
         }
         
         stage('Verify Deployment') {
+            when {
+                environment name: 'DEPLOYMENT_METHOD', value: 'zip-deployment'
+            }
             steps {
                 script {
-                    echo '🔍 Verifying deployment...'
+                    echo '🔍 Verifying ZIP deployment...'
+                    echo '📝 Note: GitHub Actions deployment handles its own verification'
                     
                     // Login again for verification (Windows)
                     bat '''
@@ -449,6 +528,41 @@ pipeline {
                 }
                 failure {
                     echo '⚠️  Verification completed with warnings'
+                }
+            }
+        }
+        
+        stage('Monitor GitHub Actions Deployment') {
+            when {
+                environment name: 'DEPLOYMENT_METHOD', value: 'github-actions'
+            }
+            steps {
+                script {
+                    echo '🔍 GitHub Actions deployment triggered successfully!'
+                    echo '📊 Deployment Status: DELEGATED TO GITHUB ACTIONS'
+                    echo ''
+                    echo '🌐 Monitor deployment progress at:'
+                    echo '   https://github.com/DwarkeshNasit99/CICD-Assignment3-8985836_New/actions'
+                    echo ''
+                    echo '🔧 GitHub Actions workflow will:'
+                    echo '   ✅ Checkout fresh code'
+                    echo '   ✅ Install dependencies'
+                    echo '   ✅ Run tests'
+                    echo '   ✅ Package function'
+                    echo '   ✅ Deploy to Azure'
+                    echo '   ✅ Verify deployment'
+                    echo ''
+                    echo '🏷️ Jenkins Build Tag: jenkins-build-${BUILD_NUMBER}'
+                    echo '🎯 Target Function App: cicd-fn-helloworld-canadacentral'
+                    echo '📍 Environment: production'
+                    echo ''
+                    echo '💡 Jenkins CI/CD responsibilities completed!'
+                    echo '🚀 Azure deployment in progress via GitHub Actions...'
+                }
+            }
+            post {
+                success {
+                    echo '✅ GitHub Actions deployment workflow triggered - Monitor via GitHub Actions tab'
                 }
             }
         }

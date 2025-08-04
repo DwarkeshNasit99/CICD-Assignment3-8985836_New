@@ -1,0 +1,56 @@
+name: Azure Functions Deploy (Triggered by Jenkins)
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_tag:
+        description: 'Deployment tag/version'
+        required: true
+        default: 'latest'
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'production'
+
+env:
+  AZURE_FUNCTIONAPP_NAME: 'cicd-fn-helloworld-canadacentral'
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
+  NODE_VERSION: '20.x'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: 'Checkout GitHub Action'
+      uses: actions/checkout@v4
+
+    - name: Setup Node ${{ env.NODE_VERSION }} Environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: 'Resolve Project Dependencies Using Npm'
+      shell: bash
+      run: |
+        pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
+        npm install
+        npm run build --if-present
+        npm run test --if-present
+        popd
+
+    - name: 'Run Azure Functions Action'
+      uses: Azure/functions-action@v1
+      id: fa
+      with:
+        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+        package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+        publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+
+    - name: 'Deployment Success Notification'
+      run: |
+        echo "✅ Deployment completed successfully!"
+        echo "🏷️ Tag: ${{ github.event.inputs.deployment_tag }}"
+        echo "🌍 Environment: ${{ github.event.inputs.environment }}"
+        echo "📦 Function App: ${{ env.AZURE_FUNCTIONAPP_NAME }}"
