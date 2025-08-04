@@ -7,7 +7,7 @@ const mockContext = {
 };
 
 // Import the function handler
-// Import the main entry point which registers all functions (updated path)
+// Import the main entry point (Azure Functions v4 structure)
 require('../httpTrigger/index');
 
 // Test Suite for Azure Function HTTP Trigger

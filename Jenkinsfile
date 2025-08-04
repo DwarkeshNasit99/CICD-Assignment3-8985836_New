@@ -105,11 +105,12 @@ pipeline {
                     '''
                     
                     // Copy necessary files for deployment (Windows commands with /Y flag for non-interactive)
-                    // NOTE: We DON'T copy node_modules - Azure will install dependencies from package.json
+                    // NOTE: For Azure Functions v4, the main entry point should be at root level
                     bat '''
-                        xcopy /s /e /i /y httpTrigger deploy\\httpTrigger
+                        copy /y httpTrigger\\index.js deploy\\index.js
                         copy /y package.json deploy\\
                         copy /y host.json deploy\\
+                        echo "Azure Functions v4 structure: index.js at root level"
                         echo "Skipping node_modules - Azure will install dependencies from package.json during deployment"
                     '''
                     
@@ -177,17 +178,32 @@ pipeline {
                         Write-Host "• Total Size: \$sizeFormatted"
                         Write-Host "• Package: ${DEPLOYMENT_PACKAGE}"
                         
-                        # Check for key files
+                        # Check for key files (Azure Functions v4 structure)
                         Write-Host ""
-                        Write-Host "✅ KEY FILE VERIFICATION:"
-                        Write-Host "-" * 25
-                        \$keyFiles = @("package.json", "host.json", "httpTrigger\\index.js")
+                        Write-Host "✅ KEY FILE VERIFICATION (Azure Functions v4):"
+                        Write-Host "-" * 40
+                        \$keyFiles = @("package.json", "host.json", "index.js")
                         foreach (\$file in \$keyFiles) {
                             \$filePath = Join-Path \$verifyDir \$file
                             if (Test-Path \$filePath) {
                                 Write-Host "✅ \$file - FOUND" -ForegroundColor Green
                             } else {
                                 Write-Host "❌ \$file - MISSING" -ForegroundColor Red
+                            }
+                        }
+                        
+                        # Verify package.json main entry
+                        \$packageJsonPath = Join-Path \$verifyDir "package.json"
+                        if (Test-Path \$packageJsonPath) {
+                            \$packageContent = Get-Content \$packageJsonPath | ConvertFrom-Json
+                            \$mainEntry = \$packageContent.main
+                            Write-Host ""
+                            Write-Host "📝 PACKAGE.JSON VERIFICATION:"
+                            Write-Host "   Main Entry: \$mainEntry"
+                            if (\$mainEntry -eq "index.js") {
+                                Write-Host "✅ Main entry is correct for Azure Functions v4" -ForegroundColor Green
+                            } else {
+                                Write-Host "❌ Main entry should be 'index.js' for v4" -ForegroundColor Red
                             }
                         }
                         
