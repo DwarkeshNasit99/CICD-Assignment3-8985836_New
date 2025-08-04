@@ -2,7 +2,7 @@
   "name": "azure-function-cicd-assignment",
   "version": "1.0.0",
   "description": "CI/CD Pipeline for Azure Functions using Jenkins",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
     "start": "func start",
     "test": "jest",
@@ -30,7 +30,7 @@
     ]
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "author": "Student Assignment",
   "license": "MIT"
