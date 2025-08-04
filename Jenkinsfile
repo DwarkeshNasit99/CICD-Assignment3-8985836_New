@@ -119,6 +119,86 @@ pipeline {
                         Get-Item ${DEPLOYMENT_PACKAGE} | Select-Object Name, Length, LastWriteTime
                     """
                     
+                    // Verify deployment package contents by extracting and displaying structure
+                    powershell """
+                        Write-Host "📋 VERIFYING DEPLOYMENT PACKAGE STRUCTURE"
+                        Write-Host "=" * 50
+                        
+                        # Create temporary verification directory
+                        \$verifyDir = "verify-deployment"
+                        if (Test-Path \$verifyDir) { Remove-Item -Recurse -Force \$verifyDir }
+                        New-Item -ItemType Directory -Name \$verifyDir | Out-Null
+                        
+                        Write-Host "📦 Extracting ${DEPLOYMENT_PACKAGE} for verification..."
+                        Expand-Archive -Path ${DEPLOYMENT_PACKAGE} -DestinationPath \$verifyDir -Force
+                        
+                        Write-Host ""
+                        Write-Host "🗂️  DEPLOYMENT PACKAGE CONTENTS:"
+                        Write-Host "-" * 40
+                        
+                        # Function to display directory tree
+                        function Show-DirectoryTree(\$path, \$prefix = "") {
+                            \$items = Get-ChildItem \$path | Sort-Object Name
+                            \$totalItems = \$items.Count
+                            \$currentItem = 0
+                            
+                            foreach (\$item in \$items) {
+                                \$currentItem++
+                                \$isLast = (\$currentItem -eq \$totalItems)
+                                \$connector = if (\$isLast) { "└── " } else { "├── " }
+                                \$nextPrefix = if (\$isLast) { "\$prefix    " } else { "\$prefix│   " }
+                                
+                                if (\$item.PSIsContainer) {
+                                    Write-Host "\$prefix\$connector📁 \$(\$item.Name)/" -ForegroundColor Yellow
+                                    Show-DirectoryTree \$item.FullName \$nextPrefix
+                                } else {
+                                    \$size = if (\$item.Length -lt 1KB) { "\$(\$item.Length)B" } 
+                                            elseif (\$item.Length -lt 1MB) { "{0:N1}KB" -f (\$item.Length / 1KB) } 
+                                            else { "{0:N1}MB" -f (\$item.Length / 1MB) }
+                                    Write-Host "\$prefix\$connector📄 \$(\$item.Name) (\$size)" -ForegroundColor Green
+                                }
+                            }
+                        }
+                        
+                        # Display the tree structure
+                        Show-DirectoryTree \$verifyDir
+                        
+                        Write-Host ""
+                        Write-Host "📊 PACKAGE SUMMARY:"
+                        Write-Host "-" * 20
+                        \$allFiles = Get-ChildItem -Path \$verifyDir -Recurse -File
+                        \$totalFiles = \$allFiles.Count
+                        \$totalSize = (\$allFiles | Measure-Object -Property Length -Sum).Sum
+                        \$sizeFormatted = if (\$totalSize -lt 1KB) { "\$(\$totalSize)B" } 
+                                        elseif (\$totalSize -lt 1MB) { "{0:N1}KB" -f (\$totalSize / 1KB) } 
+                                        else { "{0:N1}MB" -f (\$totalSize / 1MB) }
+                        
+                        Write-Host "• Total Files: \$totalFiles"
+                        Write-Host "• Total Size: \$sizeFormatted"
+                        Write-Host "• Package: ${DEPLOYMENT_PACKAGE}"
+                        
+                        # Check for key files
+                        Write-Host ""
+                        Write-Host "✅ KEY FILE VERIFICATION:"
+                        Write-Host "-" * 25
+                        \$keyFiles = @("package.json", "host.json", "httpTrigger\\index.js")
+                        foreach (\$file in \$keyFiles) {
+                            \$filePath = Join-Path \$verifyDir \$file
+                            if (Test-Path \$filePath) {
+                                Write-Host "✅ \$file - FOUND" -ForegroundColor Green
+                            } else {
+                                Write-Host "❌ \$file - MISSING" -ForegroundColor Red
+                            }
+                        }
+                        
+                        Write-Host ""
+                        Write-Host "🧹 Cleaning up verification directory..."
+                        Remove-Item -Recurse -Force \$verifyDir
+                        
+                        Write-Host "=" * 50
+                        Write-Host "📋 PACKAGE VERIFICATION COMPLETE"
+                    """
+                    
                     echo '✅ Application packaged successfully!'
                 }
             }
