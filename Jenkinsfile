@@ -105,11 +105,12 @@ pipeline {
                     '''
                     
                     // Copy necessary files for deployment (Windows commands with /Y flag for non-interactive)
+                    // NOTE: We DON'T copy node_modules - Azure will install dependencies from package.json
                     bat '''
                         xcopy /s /e /i /y src deploy\\src
                         copy /y package.json deploy\\
                         copy /y host.json deploy\\
-                        if exist node_modules (xcopy /s /e /i /y node_modules deploy\\node_modules) else (echo node_modules not found, will install on Azure)
+                        echo "Skipping node_modules - Azure will install dependencies from package.json during deployment"
                     '''
                     
                     // Create deployment zip using PowerShell
