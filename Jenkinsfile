@@ -290,32 +290,16 @@ pipeline {
                         az account show
                     '''
                     
-                    // Deploy using Azure Functions Core Tools (More Reliable)
+                    // Deploy using ZIP deployment (Core Tools install failing due to network issues)
                     bat """
                         echo Deploying to Azure Function App: %FUNCTION_APP_NAME%
                         echo Resource Group: %RESOURCE_GROUP%
+                        echo Using ZIP deployment with verified package structure
                         
-                        REM Install Azure Functions Core Tools if not present
-                        where func >nul 2>nul
-                        if %errorlevel% neq 0 (
-                            echo Installing Azure Functions Core Tools...
-                            npm install -g azure-functions-core-tools@4 --unsafe-perm true
-                        ) else (
-                            echo Azure Functions Core Tools already installed
-                            func --version
-                        )
+                        REM Deploy using zip deployment (now with proper function.json + index.js structure)
+                        az functionapp deployment source config-zip --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --src %DEPLOYMENT_PACKAGE% --build-remote true
                         
-                        REM Navigate to deployment directory and deploy
-                        cd deploy
-                        echo Current directory: %CD%
-                        echo Contents:
-                        dir
-                        
-                        REM Deploy using func command (handles packaging automatically)
-                        func azure functionapp publish %FUNCTION_APP_NAME% --build-remote
-                        
-                        cd ..
-                        echo Deployment completed using Azure Functions Core Tools!
+                        echo Deployment completed using ZIP deployment!
                         
                         REM Get function URL
                         echo Getting function URL...
@@ -381,7 +365,7 @@ pipeline {
                         Write-Host "🕒 Azure Functions deployment typically takes 3-5 minutes after 202 response..."
                         Write-Host "Starting extended wait and retry process..."
                         
-                        $maxAttempts = 10
+                        $maxAttempts = 6
                         $waitSeconds = 30
                         $attempt = 1
                         $success = $false
@@ -447,7 +431,7 @@ pipeline {
                         }
                         
                         if (-not $success) {
-                            Write-Host "❌ Function deployment verification failed after $maxAttempts attempts"
+                            Write-Host "❌ Function deployment verification failed after $maxAttempts attempts (3 minutes total)"
                             Write-Host "💡 This might be normal - Azure deployments can take longer than expected"
                             Write-Host "🔧 Check Azure Portal manually or wait a few more minutes and test manually"
                         }
