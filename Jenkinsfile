@@ -39,14 +39,17 @@ pipeline {
                     echo '🔨 Building the application...'
                     echo 'Installing Node.js dependencies...'
                     
-                    // Clean previous builds
-                    sh 'rm -rf node_modules package-lock.json || true'
+                    // Clean previous builds (Windows commands)
+                    bat '''
+                        if exist node_modules rmdir /s /q node_modules
+                        if exist package-lock.json del /q package-lock.json
+                    '''
                     
                     // Install dependencies
-                    sh 'npm install'
+                    bat 'npm install'
                     
                     // Verify installation
-                    sh 'npm list --depth=0 || true'
+                    bat 'npm list --depth=0 || echo "Dependencies listed with warnings"'
                     
                     echo '✅ Build completed successfully!'
                 }
@@ -66,8 +69,8 @@ pipeline {
                 script {
                     echo '🧪 Running automated tests...'
                     
-                    // Run tests with coverage
-                    sh 'npm test -- --coverage --watchAll=false --ci'
+                    // Run tests with coverage (Windows command)
+                    bat 'npm test -- --coverage --watchAll=false --ci'
                     
                     echo '✅ All tests passed successfully!'
                 }
@@ -95,23 +98,21 @@ pipeline {
                 script {
                     echo '📦 Packaging application for deployment...'
                     
-                    // Create deployment directory
-                    sh 'mkdir -p deploy'
+                    // Create deployment directory (Windows command)
+                    bat 'if not exist deploy mkdir deploy'
                     
-                    // Copy necessary files for deployment
-                    sh '''
-                        cp -r src deploy/
-                        cp package.json deploy/
-                        cp host.json deploy/
-                        cp -r node_modules deploy/ || echo "node_modules not found, will install on Azure"
+                    // Copy necessary files for deployment (Windows commands)
+                    bat '''
+                        xcopy /s /e /i src deploy\\src
+                        copy package.json deploy\\
+                        copy host.json deploy\\
+                        if exist node_modules (xcopy /s /e /i node_modules deploy\\node_modules) else (echo node_modules not found, will install on Azure)
                     '''
                     
-                    // Create deployment zip
-                    sh """
-                        cd deploy
-                        zip -r ../${DEPLOYMENT_PACKAGE} .
-                        cd ..
-                        ls -la ${DEPLOYMENT_PACKAGE}
+                    // Create deployment zip using PowerShell
+                    powershell """
+                        Compress-Archive -Path deploy\\* -DestinationPath ${DEPLOYMENT_PACKAGE} -Force
+                        Get-Item ${DEPLOYMENT_PACKAGE} | Select-Object Name, Length, LastWriteTime
                     """
                     
                     echo '✅ Application packaged successfully!'
@@ -133,54 +134,44 @@ pipeline {
                 script {
                     echo '🚀 Deploying to Azure Functions...'
                     
-                    // Install Azure CLI if not present
-                    sh '''
-                        if ! command -v az &> /dev/null; then
-                            echo "Installing Azure CLI..."
-                            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-                        else
-                            echo "Azure CLI already installed"
+                    // Check Azure CLI installation (Windows)
+                    bat '''
+                        where az >nul 2>nul
+                        if %errorlevel% neq 0 (
+                            echo Azure CLI not found. Please install Azure CLI on Jenkins agent.
+                            echo Download from: https://aka.ms/installazurecliwindows
+                            exit /b 1
+                        ) else (
+                            echo Azure CLI already installed
                             az version
-                        fi
+                        )
                     '''
                     
-                    // Login to Azure using service principal
-                    sh '''
-                        echo "Logging into Azure..."
-                        az login --service-principal \
-                            --username $AZURE_CLIENT_ID \
-                            --password $AZURE_CLIENT_SECRET \
-                            --tenant $AZURE_TENANT_ID
+                    // Login to Azure using service principal (Windows)
+                    bat '''
+                        echo Logging into Azure...
+                        az login --service-principal --username %AZURE_CLIENT_ID% --password %AZURE_CLIENT_SECRET% --tenant %AZURE_TENANT_ID%
                         
-                        echo "Setting subscription..."
-                        az account set --subscription $AZURE_SUBSCRIPTION_ID
+                        echo Setting subscription...
+                        az account set --subscription %AZURE_SUBSCRIPTION_ID%
                         
-                        echo "Verifying login..."
+                        echo Verifying login...
                         az account show
                     '''
                     
-                    // Deploy to Azure Function App
-                    sh """
-                        echo "Deploying to Azure Function App: ${FUNCTION_APP_NAME}"
-                        echo "Resource Group: ${RESOURCE_GROUP}"
+                    // Deploy to Azure Function App (Windows)
+                    bat """
+                        echo Deploying to Azure Function App: %FUNCTION_APP_NAME%
+                        echo Resource Group: %RESOURCE_GROUP%
                         
-                        # Deploy using zip deployment
-                        az functionapp deployment source config-zip \\
-                            --resource-group ${RESOURCE_GROUP} \\
-                            --name ${FUNCTION_APP_NAME} \\
-                            --src ${DEPLOYMENT_PACKAGE} \\
-                            --build-remote true
+                        REM Deploy using zip deployment
+                        az functionapp deployment source config-zip --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --src %DEPLOYMENT_PACKAGE% --build-remote true
                         
-                        echo "Deployment completed!"
+                        echo Deployment completed!
                         
-                        # Get function URL
-                        echo "Getting function URL..."
-                        az functionapp function show \\
-                            --resource-group ${RESOURCE_GROUP} \\
-                            --name ${FUNCTION_APP_NAME} \\
-                            --function-name httpTrigger \\
-                            --query "invokeUrlTemplate" \\
-                            --output tsv || echo "Could not retrieve function URL"
+                        REM Get function URL
+                        echo Getting function URL...
+                        az functionapp function show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --function-name httpTrigger --query "invokeUrlTemplate" --output tsv || echo Could not retrieve function URL
                     """
                     
                     echo '✅ Deployment completed successfully!'
@@ -217,7 +208,7 @@ pipeline {
                 }
                 always {
                     // Logout from Azure
-                    sh 'az logout || true'
+                    bat 'az logout || echo "Logout failed but continuing"'
                 }
             }
         }
@@ -227,62 +218,55 @@ pipeline {
                 script {
                     echo '🔍 Verifying deployment...'
                     
-                    // Login again for verification
-                    sh '''
-                        az login --service-principal \
-                            --username $AZURE_CLIENT_ID \
-                            --password $AZURE_CLIENT_SECRET \
-                            --tenant $AZURE_TENANT_ID
-                        az account set --subscription $AZURE_SUBSCRIPTION_ID
+                    // Login again for verification (Windows)
+                    bat '''
+                        az login --service-principal --username %AZURE_CLIENT_ID% --password %AZURE_CLIENT_SECRET% --tenant %AZURE_TENANT_ID%
+                        az account set --subscription %AZURE_SUBSCRIPTION_ID%
                     '''
                     
-                    // Check function app status
-                    sh """
-                        echo "Checking Function App status..."
-                        az functionapp show \\
-                            --resource-group ${RESOURCE_GROUP} \\
-                            --name ${FUNCTION_APP_NAME} \\
-                            --query "{name:name,state:state,hostNames:defaultHostName}" \\
-                            --output table
+                    // Check function app status (Windows)
+                    bat """
+                        echo Checking Function App status...
+                        az functionapp show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --query "{name:name,state:state,hostNames:defaultHostName}" --output table
                         
-                        echo "Checking function runtime status..."
-                        az functionapp config show \\
-                            --resource-group ${RESOURCE_GROUP} \\
-                            --name ${FUNCTION_APP_NAME} \\
-                            --query "{nodeVersion:nodeVersion,appSettings:appSettings}" \\
-                            --output json || true
+                        echo Checking function runtime status...
+                        az functionapp config show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --query "{nodeVersion:nodeVersion,appSettings:appSettings}" --output json || echo Failed to get config
                     """
                     
-                    // Wait for function to be ready and test it
-                    sh '''
-                        echo "Waiting for function to be ready..."
-                        sleep 30
+                    // Wait for function to be ready and test it (Windows PowerShell)
+                    powershell '''
+                        Write-Host "Waiting for function to be ready..."
+                        Start-Sleep -Seconds 30
                         
                         # Get function URL
-                        FUNCTION_URL=$(az functionapp function show \
-                            --resource-group $RESOURCE_GROUP \
-                            --name $FUNCTION_APP_NAME \
-                            --function-name httpTrigger \
-                            --query "invokeUrlTemplate" \
-                            --output tsv 2>/dev/null || echo "")
-                        
-                        if [ ! -z "$FUNCTION_URL" ]; then
-                            echo "Testing function at: $FUNCTION_URL"
+                        try {
+                            $functionUrl = az functionapp function show --resource-group $env:RESOURCE_GROUP --name $env:FUNCTION_APP_NAME --function-name httpTrigger --query "invokeUrlTemplate" --output tsv 2>$null
                             
-                            # Test the function
-                            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$FUNCTION_URL" || echo "000")
-                            
-                            if [ "$HTTP_STATUS" = "200" ]; then
-                                echo "✅ Function is responding correctly (HTTP $HTTP_STATUS)"
-                                echo "Function response:"
-                                curl -s "$FUNCTION_URL" | head -c 500
-                            else
-                                echo "⚠️  Function returned HTTP status: $HTTP_STATUS"
-                                echo "This might be normal if the function is still warming up"
-                            fi
-                        else
-                            echo "⚠️  Could not retrieve function URL for testing"
-                        fi
+                            if ($functionUrl -and $functionUrl -ne "") {
+                                Write-Host "Testing function at: $functionUrl"
+                                
+                                # Test the function
+                                try {
+                                    $response = Invoke-WebRequest -Uri $functionUrl -Method GET -UseBasicParsing
+                                    $httpStatus = $response.StatusCode
+                                    
+                                    if ($httpStatus -eq 200) {
+                                        Write-Host "✅ Function is responding correctly (HTTP $httpStatus)"
+                                        Write-Host "Function response:"
+                                        Write-Host $response.Content.Substring(0, [Math]::Min(500, $response.Content.Length))
+                                    } else {
+                                        Write-Host "⚠️ Function returned HTTP status: $httpStatus"
+                                        Write-Host "This might be normal if the function is still warming up"
+                                    }
+                                } catch {
+                                    Write-Host "⚠️ Error testing function: $($_.Exception.Message)"
+                                }
+                            } else {
+                                Write-Host "⚠️ Could not retrieve function URL for testing"
+                            }
+                        } catch {
+                            Write-Host "⚠️ Error getting function URL: $($_.Exception.Message)"
+                        }
                     '''
                     
                     echo '✅ Deployment verification completed!'
@@ -290,7 +274,7 @@ pipeline {
             }
             post {
                 always {
-                    sh 'az logout || true'
+                    bat 'az logout || echo "Logout failed but continuing"'
                 }
                 success {
                     echo '✅ Verification completed - Function is deployed and accessible'
@@ -310,9 +294,9 @@ pipeline {
             script {
                 try {
                     node {
-                        sh '''
-                            rm -f ${DEPLOYMENT_PACKAGE} || true
-                            rm -rf deploy || true
+                        bat '''
+                            if exist %DEPLOYMENT_PACKAGE% del /q %DEPLOYMENT_PACKAGE%
+                            if exist deploy rmdir /s /q deploy
                         '''
                         
                         // Archive logs
