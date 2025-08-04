@@ -306,16 +306,22 @@ pipeline {
         always {
             echo '🧹 Cleaning up workspace...'
             
-            // Clean up deployment files
-            sh '''
-                rm -f ${DEPLOYMENT_PACKAGE} || true
-                rm -rf deploy || true
-            '''
-            
-            // Archive logs
+            // Clean up deployment files - wrap in node context
             script {
-                if (fileExists('npm-debug.log')) {
-                    archiveArtifacts artifacts: 'npm-debug.log', allowEmptyArchive: true
+                try {
+                    node {
+                        sh '''
+                            rm -f ${DEPLOYMENT_PACKAGE} || true
+                            rm -rf deploy || true
+                        '''
+                        
+                        // Archive logs
+                        if (fileExists('npm-debug.log')) {
+                            archiveArtifacts artifacts: 'npm-debug.log', allowEmptyArchive: true
+                        }
+                    }
+                } catch (Exception e) {
+                    echo "Cleanup failed: ${e.message}"
                 }
             }
         }
