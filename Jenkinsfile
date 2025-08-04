@@ -98,15 +98,18 @@ pipeline {
                 script {
                     echo '📦 Packaging application for deployment...'
                     
-                    // Create deployment directory (Windows command)
-                    bat 'if not exist deploy mkdir deploy'
-                    
-                    // Copy necessary files for deployment (Windows commands)
+                    // Clean and create deployment directory (Windows command)
                     bat '''
-                        xcopy /s /e /i src deploy\\src
-                        copy package.json deploy\\
-                        copy host.json deploy\\
-                        if exist node_modules (xcopy /s /e /i node_modules deploy\\node_modules) else (echo node_modules not found, will install on Azure)
+                        if exist deploy rmdir /s /q deploy
+                        mkdir deploy
+                    '''
+                    
+                    // Copy necessary files for deployment (Windows commands with /Y flag for non-interactive)
+                    bat '''
+                        xcopy /s /e /i /y src deploy\\src
+                        copy /y package.json deploy\\
+                        copy /y host.json deploy\\
+                        if exist node_modules (xcopy /s /e /i /y node_modules deploy\\node_modules) else (echo node_modules not found, will install on Azure)
                     '''
                     
                     // Create deployment zip using PowerShell
