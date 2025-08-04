@@ -105,12 +105,12 @@ pipeline {
                     '''
                     
                     // Copy necessary files for deployment (Windows commands with /Y flag for non-interactive)
-                    // NOTE: For Azure Functions v4, the main entry point should be at root level
+                    // NOTE: Azure Functions folder structure - each function in its own folder
                     bat '''
-                        copy /y httpTrigger\\index.js deploy\\index.js
+                        xcopy /s /e /i /y httpTrigger deploy\\httpTrigger
                         copy /y package.json deploy\\
                         copy /y host.json deploy\\
-                        echo "Azure Functions v4 structure: index.js at root level"
+                        echo "Azure Functions structure: httpTrigger folder with index.js inside"
                         echo "Skipping node_modules - Azure will install dependencies from package.json during deployment"
                     '''
                     
@@ -178,11 +178,11 @@ pipeline {
                         Write-Host "• Total Size: \$sizeFormatted"
                         Write-Host "• Package: ${DEPLOYMENT_PACKAGE}"
                         
-                        # Check for key files (Azure Functions v4 structure)
+                        # Check for key files (Azure Functions folder structure)
                         Write-Host ""
-                        Write-Host "✅ KEY FILE VERIFICATION (Azure Functions v4):"
-                        Write-Host "-" * 40
-                        \$keyFiles = @("package.json", "host.json", "index.js")
+                        Write-Host "✅ KEY FILE VERIFICATION (Azure Functions Folder Structure):"
+                        Write-Host "-" * 50
+                        \$keyFiles = @("package.json", "host.json", "httpTrigger\\index.js", "httpTrigger\\function.json")
                         foreach (\$file in \$keyFiles) {
                             \$filePath = Join-Path \$verifyDir \$file
                             if (Test-Path \$filePath) {
@@ -200,10 +200,41 @@ pipeline {
                             Write-Host ""
                             Write-Host "📝 PACKAGE.JSON VERIFICATION:"
                             Write-Host "   Main Entry: \$mainEntry"
-                            if (\$mainEntry -eq "index.js") {
-                                Write-Host "✅ Main entry is correct for Azure Functions v4" -ForegroundColor Green
+                            if (\$mainEntry -eq "httpTrigger/index.js") {
+                                Write-Host "✅ Main entry points to httpTrigger folder - CORRECT" -ForegroundColor Green
                             } else {
-                                Write-Host "❌ Main entry should be 'index.js' for v4" -ForegroundColor Red
+                                Write-Host "❌ Main entry should be 'httpTrigger/index.js'" -ForegroundColor Red
+                            }
+                        }
+                        
+                        # Check httpTrigger folder structure
+                        \$httpTriggerPath = Join-Path \$verifyDir "httpTrigger"
+                        if (Test-Path \$httpTriggerPath) {
+                            Write-Host ""
+                            Write-Host "📁 HTTPTRIGGER FOLDER CONTENTS:"
+                            Get-ChildItem \$httpTriggerPath | ForEach-Object {
+                                Write-Host "   📄 \$(\$_.Name)" -ForegroundColor Cyan
+                            }
+                            
+                            # Verify function.json configuration
+                            \$functionJsonPath = Join-Path \$httpTriggerPath "function.json"
+                            if (Test-Path \$functionJsonPath) {
+                                Write-Host ""
+                                Write-Host "🔧 FUNCTION.JSON VERIFICATION:"
+                                try {
+                                    \$functionConfig = Get-Content \$functionJsonPath | ConvertFrom-Json
+                                    \$httpTrigger = \$functionConfig.bindings | Where-Object { \$_.type -eq "httpTrigger" }
+                                    if (\$httpTrigger) {
+                                        Write-Host "   ✅ HTTP Trigger binding found" -ForegroundColor Green
+                                        Write-Host "   📝 Auth Level: \$(\$httpTrigger.authLevel)"
+                                        Write-Host "   📝 Methods: \$(\$httpTrigger.methods -join ', ')"
+                                        Write-Host "   📝 Route: \$(\$httpTrigger.route)"
+                                    } else {
+                                        Write-Host "   ❌ HTTP Trigger binding not found" -ForegroundColor Red
+                                    }
+                                } catch {
+                                    Write-Host "   ❌ Error reading function.json: \$(\$_.Exception.Message)" -ForegroundColor Red
+                                }
                             }
                         }
                         
@@ -259,15 +290,32 @@ pipeline {
                         az account show
                     '''
                     
-                    // Deploy to Azure Function App (Windows)
+                    // Deploy using Azure Functions Core Tools (More Reliable)
                     bat """
                         echo Deploying to Azure Function App: %FUNCTION_APP_NAME%
                         echo Resource Group: %RESOURCE_GROUP%
                         
-                        REM Deploy using zip deployment
-                        az functionapp deployment source config-zip --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --src %DEPLOYMENT_PACKAGE% --build-remote true
+                        REM Install Azure Functions Core Tools if not present
+                        where func >nul 2>nul
+                        if %errorlevel% neq 0 (
+                            echo Installing Azure Functions Core Tools...
+                            npm install -g azure-functions-core-tools@4 --unsafe-perm true
+                        ) else (
+                            echo Azure Functions Core Tools already installed
+                            func --version
+                        )
                         
-                        echo Deployment completed!
+                        REM Navigate to deployment directory and deploy
+                        cd deploy
+                        echo Current directory: %CD%
+                        echo Contents:
+                        dir
+                        
+                        REM Deploy using func command (handles packaging automatically)
+                        func azure functionapp publish %FUNCTION_APP_NAME% --build-remote
+                        
+                        cd ..
+                        echo Deployment completed using Azure Functions Core Tools!
                         
                         REM Get function URL
                         echo Getting function URL...
