@@ -56,19 +56,41 @@ host.json            # Function app configuration
 
 ## Deployment Process
 
-1. **Jenkins Pipeline Triggered**: Push to main branch triggers Jenkins build
+1. **Automatic Trigger**: Push to main branch automatically triggers Jenkins build
 2. **Continuous Integration**: Jenkins performs checkout, build, and test
 3. **Deployment Trigger**: Jenkins triggers GitHub Actions workflow
 4. **Continuous Deployment**: GitHub Actions packages and deploys to Azure
 5. **Verification**: GitHub Actions verifies deployment success
 
+## Automatic Pipeline Triggering
+
+The pipeline supports two methods for automatic triggering:
+
+### Method 1: SCM Polling (Currently Enabled)
+- Jenkins polls GitHub repository every 2 minutes for changes
+- Automatically triggers build when new commits are detected
+- No additional configuration required
+
+### Method 2: GitHub Webhook (Recommended for Production)
+- Real-time triggering when code is pushed to GitHub
+- More efficient than polling
+- Requires webhook configuration in GitHub repository settings
+
 ## Running the Pipeline
 
+### Automatic (Recommended)
 1. Push code changes to the main branch
-2. Jenkins automatically detects changes and starts the pipeline
-3. Monitor progress in Jenkins console output
-4. Monitor deployment in GitHub Actions tab
-5. Verify function is accessible via Azure Portal
+2. Jenkins automatically detects changes within 2 minutes
+3. Pipeline starts automatically
+4. Monitor progress in Jenkins console output
+5. Monitor deployment in GitHub Actions tab
+6. Verify function is accessible via Azure Portal
+
+### Manual (For Testing)
+1. Go to Jenkins dashboard
+2. Click on your pipeline project
+3. Click "Build Now"
+4. Monitor pipeline execution
 
 ## Testing the Function
 

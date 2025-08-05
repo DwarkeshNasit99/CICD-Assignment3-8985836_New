@@ -1,6 +1,13 @@
 pipeline {
     agent any
     
+    triggers {
+        // Poll SCM every 2 minutes for changes
+        pollSCM('H/2 * * * *')
+        // Alternative: GitHub webhook trigger (recommended)
+        // Requires webhook configuration in GitHub repository settings
+    }
+    
     environment {
         // Azure credentials
         AZURE_CLIENT_ID = credentials('AZURE_CLIENT_ID')
