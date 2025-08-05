@@ -340,7 +340,7 @@ pipeline {
                             echo '🎯 Now delegating deployment to GitHub Actions (more reliable)'
                             
                             // Trigger GitHub Actions workflow
-                            withCredentials([string(credentialsId: 'GITHUB_TOKEN_PWD', variable: 'GITHUB_TOKEN')]) {
+                            withCredentials([usernamePassword(credentialsId: 'GITHUB_TOKEN_PWD', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
                                 bat """
                                     echo 🚀 Triggering GitHub Actions deployment workflow...
                                     echo 📁 Repository: DwarkeshNasit99/CICD-Assignment3-8985836_New
