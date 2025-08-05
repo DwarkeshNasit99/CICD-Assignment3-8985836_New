@@ -64,21 +64,13 @@ host.json            # Function app configuration
 
 ## Automatic Pipeline Triggering
 
-The pipeline supports two methods for automatic triggering:
-
-### Method 1: SCM Polling (Currently Enabled)
+### SCM Polling (Currently Enabled)
 - Jenkins polls GitHub repository every 2 minutes for changes
 - Automatically triggers build when new commits are detected
-- No additional configuration required
-
-### Method 2: GitHub Webhook (Recommended for Production)
-- Real-time triggering when code is pushed to GitHub
-- More efficient than polling
-- Requires webhook configuration in GitHub repository settings
 
 ## Running the Pipeline
 
-### Automatic (Recommended)
+### Automatic
 1. Push code changes to the main branch
 2. Jenkins automatically detects changes within 2 minutes
 3. Pipeline starts automatically
@@ -96,15 +88,24 @@ The pipeline supports two methods for automatic triggering:
 
 After successful deployment, test the function using:
 
+### Get Function URL and Key
+1. Go to Azure Portal → Function Apps → `cicd-fn-helloworld-canadacentral`
+2. Click Functions → `httpTrigger`
+3. Click "Get Function Url"
+4. Select `default (function key)` option
+5. Copy the complete URL with the key
+
 ### Basic Request
 ```
-GET https://cicd-fn-helloworld-canadacentral.azurewebsites.net/api/hello?code=YOUR_FUNCTION_KEY
+GET https://cicd-fn-helloworld-canadacentral.azurewebsites.net/api/hello?code=ACTUAL_FUNCTION_KEY_FROM_AZURE
 ```
 
 ### Request with Parameter
 ```
-GET https://cicd-fn-helloworld-canadacentral.azurewebsites.net/api/hello?name=YourName&code=YOUR_FUNCTION_KEY
+GET https://cicd-fn-helloworld-canadacentral.azurewebsites.net/api/hello?name=YourName&code=ACTUAL_FUNCTION_KEY_FROM_AZURE
 ```
+
+**Note**: Replace `ACTUAL_FUNCTION_KEY_FROM_AZURE` with the key copied from Azure Portal.
 
 ### Expected Response
 ```json
