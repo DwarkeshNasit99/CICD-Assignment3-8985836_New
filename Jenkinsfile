@@ -2,25 +2,17 @@ pipeline {
     agent any
     
     environment {
-        // Azure credentials - using your Jenkins credential IDs
+        // Azure credentials
         AZURE_CLIENT_ID = credentials('AZURE_CLIENT_ID')
         AZURE_CLIENT_SECRET = credentials('AZURE_CLIENT_SECRET') 
         AZURE_TENANT_ID = credentials('AZURE_TENANT_ID')
         AZURE_SUBSCRIPTION_ID = credentials('AZURE_SUBSCRIPTION_ID')
-        
-        // Azure Function App details - using your Jenkins credential IDs
         RESOURCE_GROUP = credentials('AZURE_RESOURCE_GROUP')
         FUNCTION_APP_NAME = credentials('AZURE_FUNCTION_APP_NAME')
         
-        // Node.js version
+        // Configuration
         NODEJS_VERSION = '20'
-        
-        // Deployment package name
         DEPLOYMENT_PACKAGE = 'function-deployment.zip'
-        
-        // Deployment method: 
-        // 'github-actions' = Jenkins does CI, GitHub Actions does CD (RECOMMENDED - no network issues)
-        // 'zip-deployment' = Full Jenkins pipeline (FALLBACK - has network/connectivity issues)
         DEPLOYMENT_METHOD = 'github-actions'
     }
     
@@ -32,7 +24,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 script {
-                    echo '📦 Checking out code from GitHub...'
+                    echo 'Checking out code from GitHub repository'
                     checkout scm
                 }
             }
@@ -41,10 +33,9 @@ pipeline {
         stage('Build') {
             steps {
                 script {
-                    echo '🔨 Building the application...'
-                    echo 'Installing Node.js dependencies...'
+                    echo 'Building the application'
                     
-                    // Clean previous builds (Windows commands)
+                    // Clean previous builds
                     bat '''
                         if exist node_modules rmdir /s /q node_modules
                         if exist package-lock.json del /q package-lock.json
@@ -52,19 +43,9 @@ pipeline {
                     
                     // Install dependencies
                     bat 'npm install'
+                    bat 'npm list --depth=0 || echo "Dependencies installed"'
                     
-                    // Verify installation
-                    bat 'npm list --depth=0 || echo "Dependencies listed with warnings"'
-                    
-                    echo '✅ Build completed successfully!'
-                }
-            }
-            post {
-                success {
-                    echo '✅ Build stage completed successfully'
-                }
-                failure {
-                    echo '❌ Build stage failed'
+                    echo 'Build completed successfully'
                 }
             }
         }
@@ -72,28 +53,18 @@ pipeline {
         stage('Test') {
             steps {
                 script {
-                    echo '🧪 Running automated tests...'
-                    
-                    // Run tests with coverage (Windows command)
+                    echo 'Running automated tests'
                     bat 'npm test -- --coverage --watchAll=false --ci'
-                    
-                    echo '✅ All tests passed successfully!'
+                    echo 'All tests passed successfully'
                 }
             }
             post {
                 always {
-                    // Publish test results if using JUnit format
                     script {
-                        if (fileExists('coverage/lcov.info')) {
+                        if (fileExists('coverage')) {
                             echo 'Test coverage report generated'
                         }
                     }
-                }
-                success {
-                    echo '✅ Test stage completed successfully - All tests passed'
-                }
-                failure {
-                    echo '❌ Test stage failed - Some tests failed'
                 }
             }
         }
@@ -104,167 +75,33 @@ pipeline {
             }
             steps {
                 script {
-                    echo '📦 Packaging application for ZIP deployment (fallback method)...'
-                    echo '⚠️ Note: Using ZIP fallback - GitHub Actions deployment is recommended'
+                    echo 'Packaging application for ZIP deployment'
                     
-                    // Clean and create deployment directory (Windows command)
+                    // Create deployment directory
                     bat '''
                         if exist deploy rmdir /s /q deploy
                         mkdir deploy
                     '''
                     
-                    // Copy necessary files for deployment (Windows commands with /Y flag for non-interactive)
-                    // NOTE: Azure Functions folder structure - each function in its own folder
+                    // Copy necessary files
                     bat '''
                         xcopy /s /e /i /y httpTrigger deploy\\httpTrigger
                         copy /y package.json deploy\\
                         copy /y host.json deploy\\
-                        echo "Azure Functions structure: httpTrigger folder with index.js inside"
-                        echo "Skipping node_modules - Azure will install dependencies from package.json during deployment"
                     '''
                     
-                    // Create deployment zip using PowerShell
+                    // Create deployment zip
                     powershell """
                         Compress-Archive -Path deploy\\* -DestinationPath ${DEPLOYMENT_PACKAGE} -Force
                         Get-Item ${DEPLOYMENT_PACKAGE} | Select-Object Name, Length, LastWriteTime
                     """
                     
-                    // Verify deployment package contents by extracting and displaying structure
-                    powershell """
-                        Write-Host "📋 VERIFYING DEPLOYMENT PACKAGE STRUCTURE"
-                        Write-Host "=" * 50
-                        
-                        # Create temporary verification directory
-                        \$verifyDir = "verify-deployment"
-                        if (Test-Path \$verifyDir) { Remove-Item -Recurse -Force \$verifyDir }
-                        New-Item -ItemType Directory -Name \$verifyDir | Out-Null
-                        
-                        Write-Host "📦 Extracting ${DEPLOYMENT_PACKAGE} for verification..."
-                        Expand-Archive -Path ${DEPLOYMENT_PACKAGE} -DestinationPath \$verifyDir -Force
-                        
-                        Write-Host ""
-                        Write-Host "🗂️  DEPLOYMENT PACKAGE CONTENTS:"
-                        Write-Host "-" * 40
-                        
-                        # Function to display directory tree
-                        function Show-DirectoryTree(\$path, \$prefix = "") {
-                            \$items = Get-ChildItem \$path | Sort-Object Name
-                            \$totalItems = \$items.Count
-                            \$currentItem = 0
-                            
-                            foreach (\$item in \$items) {
-                                \$currentItem++
-                                \$isLast = (\$currentItem -eq \$totalItems)
-                                \$connector = if (\$isLast) { "└── " } else { "├── " }
-                                \$nextPrefix = if (\$isLast) { "\$prefix    " } else { "\$prefix│   " }
-                                
-                                if (\$item.PSIsContainer) {
-                                    Write-Host "\$prefix\$connector📁 \$(\$item.Name)/" -ForegroundColor Yellow
-                                    Show-DirectoryTree \$item.FullName \$nextPrefix
-                                } else {
-                                    \$size = if (\$item.Length -lt 1KB) { "\$(\$item.Length)B" } 
-                                            elseif (\$item.Length -lt 1MB) { "{0:N1}KB" -f (\$item.Length / 1KB) } 
-                                            else { "{0:N1}MB" -f (\$item.Length / 1MB) }
-                                    Write-Host "\$prefix\$connector📄 \$(\$item.Name) (\$size)" -ForegroundColor Green
-                                }
-                            }
-                        }
-                        
-                        # Display the tree structure
-                        Show-DirectoryTree \$verifyDir
-                        
-                        Write-Host ""
-                        Write-Host "📊 PACKAGE SUMMARY:"
-                        Write-Host "-" * 20
-                        \$allFiles = Get-ChildItem -Path \$verifyDir -Recurse -File
-                        \$totalFiles = \$allFiles.Count
-                        \$totalSize = (\$allFiles | Measure-Object -Property Length -Sum).Sum
-                        \$sizeFormatted = if (\$totalSize -lt 1KB) { "\$(\$totalSize)B" } 
-                                        elseif (\$totalSize -lt 1MB) { "{0:N1}KB" -f (\$totalSize / 1KB) } 
-                                        else { "{0:N1}MB" -f (\$totalSize / 1MB) }
-                        
-                        Write-Host "• Total Files: \$totalFiles"
-                        Write-Host "• Total Size: \$sizeFormatted"
-                        Write-Host "• Package: ${DEPLOYMENT_PACKAGE}"
-                        
-                        # Check for key files (Azure Functions folder structure)
-                        Write-Host ""
-                        Write-Host "✅ KEY FILE VERIFICATION (Azure Functions Folder Structure):"
-                        Write-Host "-" * 50
-                        \$keyFiles = @("package.json", "host.json", "httpTrigger\\index.js", "httpTrigger\\function.json")
-                        foreach (\$file in \$keyFiles) {
-                            \$filePath = Join-Path \$verifyDir \$file
-                            if (Test-Path \$filePath) {
-                                Write-Host "✅ \$file - FOUND" -ForegroundColor Green
-                            } else {
-                                Write-Host "❌ \$file - MISSING" -ForegroundColor Red
-                            }
-                        }
-                        
-                        # Verify package.json main entry
-                        \$packageJsonPath = Join-Path \$verifyDir "package.json"
-                        if (Test-Path \$packageJsonPath) {
-                            \$packageContent = Get-Content \$packageJsonPath | ConvertFrom-Json
-                            \$mainEntry = \$packageContent.main
-                            Write-Host ""
-                            Write-Host "📝 PACKAGE.JSON VERIFICATION:"
-                            Write-Host "   Main Entry: \$mainEntry"
-                            if (\$mainEntry -eq "httpTrigger/index.js") {
-                                Write-Host "✅ Main entry points to httpTrigger folder - CORRECT" -ForegroundColor Green
-                            } else {
-                                Write-Host "❌ Main entry should be 'httpTrigger/index.js'" -ForegroundColor Red
-                            }
-                        }
-                        
-                        # Check httpTrigger folder structure
-                        \$httpTriggerPath = Join-Path \$verifyDir "httpTrigger"
-                        if (Test-Path \$httpTriggerPath) {
-                            Write-Host ""
-                            Write-Host "📁 HTTPTRIGGER FOLDER CONTENTS:"
-                            Get-ChildItem \$httpTriggerPath | ForEach-Object {
-                                Write-Host "   📄 \$(\$_.Name)" -ForegroundColor Cyan
-                            }
-                            
-                            # Verify function.json configuration
-                            \$functionJsonPath = Join-Path \$httpTriggerPath "function.json"
-                            if (Test-Path \$functionJsonPath) {
-                                Write-Host ""
-                                Write-Host "🔧 FUNCTION.JSON VERIFICATION:"
-                                try {
-                                    \$functionConfig = Get-Content \$functionJsonPath | ConvertFrom-Json
-                                    \$httpTrigger = \$functionConfig.bindings | Where-Object { \$_.type -eq "httpTrigger" }
-                                    if (\$httpTrigger) {
-                                        Write-Host "   ✅ HTTP Trigger binding found" -ForegroundColor Green
-                                        Write-Host "   📝 Auth Level: \$(\$httpTrigger.authLevel)"
-                                        Write-Host "   📝 Methods: \$(\$httpTrigger.methods -join ', ')"
-                                        Write-Host "   📝 Route: \$(\$httpTrigger.route)"
-                                    } else {
-                                        Write-Host "   ❌ HTTP Trigger binding not found" -ForegroundColor Red
-                                    }
-                                } catch {
-                                    Write-Host "   ❌ Error reading function.json: \$(\$_.Exception.Message)" -ForegroundColor Red
-                                }
-                            }
-                        }
-                        
-                        Write-Host ""
-                        Write-Host "🧹 Cleaning up verification directory..."
-                        Remove-Item -Recurse -Force \$verifyDir
-                        
-                        Write-Host "=" * 50
-                        Write-Host "📋 PACKAGE VERIFICATION COMPLETE"
-                    """
-                    
-                    echo '✅ Application packaged successfully!'
+                    echo 'Application packaged successfully'
                 }
             }
             post {
                 success {
-                    echo '✅ Package stage completed successfully'
-                    archiveArtifacts artifacts: "${DEPLOYMENT_PACKAGE}", allowEmptyArchive: false
-                }
-                failure {
-                    echo '❌ Package stage failed'
+                    archiveArtifacts artifacts: "${DEPLOYMENT_PACKAGE}", allowEmptyArchive: true
                 }
             }
         }
@@ -275,26 +112,13 @@ pipeline {
             }
             steps {
                 script {
-                    echo '🚀 Preparing GitHub Actions deployment...'
-                    echo '📋 Jenkins CI completed successfully:'
-                    echo '   ✅ Code checkout'
-                    echo '   ✅ Dependencies installed'
-                    echo '   ✅ Tests passed'
-                    echo '💡 Ready to trigger GitHub Actions for deployment'
-                    echo '🌐 GitHub Actions will handle:'
-                    echo '   • Fresh code checkout'
-                    echo '   • Clean build process'
-                    echo '   • Package creation'
-                    echo '   • Azure deployment'
-                    echo ''
-                    echo '📁 Repository: DwarkeshNasit99/CICD-Assignment3-8985836_New'
-                    echo '📄 Workflow: azure-deploy-triggered.yml'
-                    echo '🏷️ Build Tag: jenkins-build-${BUILD_NUMBER}'
-                }
-            }
-            post {
-                success {
-                    echo '✅ Ready for GitHub Actions deployment trigger'
+                    echo 'Preparing GitHub Actions deployment'
+                    echo 'Jenkins CI completed successfully: Code checkout, Dependencies installed, Tests passed'
+                    echo 'Ready to trigger GitHub Actions for deployment'
+                    echo 'GitHub Actions will handle: Fresh code checkout, Clean build process, Package creation, Azure deployment'
+                    echo "Repository: DwarkeshNasit99/CICD-Assignment3-8985836_New"
+                    echo "Workflow: azure-deploy-triggered.yml"
+                    echo "Build Tag: jenkins-build-${BUILD_NUMBER}"
                 }
             }
         }
@@ -302,115 +126,76 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    echo '🚀 Starting deployment process...'
-                    echo "📊 Deployment Method: ${env.DEPLOYMENT_METHOD}"
+                    echo "Starting deployment process"
+                    echo "Deployment Method: ${env.DEPLOYMENT_METHOD}"
                     
-                    // Check Azure CLI installation (Windows)
+                    // Check Azure CLI
                     bat '''
                         where az >nul 2>nul
                         if %errorlevel% neq 0 (
-                            echo Azure CLI not found. Please install Azure CLI on Jenkins agent.
-                            echo Download from: https://aka.ms/installazurecliwindows
+                            echo Azure CLI not found. Please install Azure CLI.
                             exit /b 1
                         ) else (
-                            echo Azure CLI already installed
-                            az version
+                            echo Azure CLI is available
                         )
                     '''
                     
-                    // Login to Azure using service principal (Windows)
+                    // Azure login
                     bat '''
-                        echo Logging into Azure...
+                        echo Logging into Azure
                         az login --service-principal --username %AZURE_CLIENT_ID% --password %AZURE_CLIENT_SECRET% --tenant %AZURE_TENANT_ID%
-                        
-                        echo Setting subscription...
                         az account set --subscription %AZURE_SUBSCRIPTION_ID%
-                        
-                        echo Verifying login...
-                        az account show
                     '''
                     
-                    // Choose deployment method: GitHub Actions (recommended) or ZIP deployment
                     script {
                         def deploymentMethod = env.DEPLOYMENT_METHOD ?: 'github-actions'
                         
                         if (deploymentMethod == 'github-actions') {
-                            echo '🚀 Using GitHub Actions deployment (recommended - no network issues)...'
-                            echo '📝 Jenkins completed: Build → Test → Package verification'
-                            echo '🎯 Now delegating deployment to GitHub Actions (more reliable)'
+                            echo 'Using GitHub Actions deployment (recommended)'
+                            echo 'Jenkins completed: Build, Test, Package verification'
+                            echo 'Now delegating deployment to GitHub Actions'
                             
                             // Trigger GitHub Actions workflow
                             withCredentials([usernamePassword(credentialsId: 'GITHUB_TOKEN_PWD', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_TOKEN')]) {
                                 bat """
-                                    echo 🚀 Triggering GitHub Actions deployment workflow...
-                                    echo 📁 Repository: DwarkeshNasit99/CICD-Assignment3-8985836_New
-                                    echo 📋 Workflow: azure-deploy-triggered.yml
-                                    echo 🏷️ Build Tag: jenkins-build-${BUILD_NUMBER}
+                                    echo Triggering GitHub Actions deployment workflow
+                                    echo Repository: DwarkeshNasit99/CICD-Assignment3-8985836_New
+                                    echo Workflow: azure-deploy-triggered.yml
+                                    echo Build Tag: jenkins-build-${BUILD_NUMBER}
                                     
-                                    REM Use curl to trigger GitHub Actions workflow_dispatch
                                     curl -X POST ^
                                         -H "Authorization: token %GITHUB_TOKEN%" ^
                                         -H "Accept: application/vnd.github.v3+json" ^
                                         https://api.github.com/repos/DwarkeshNasit99/CICD-Assignment3-8985836_New/actions/workflows/azure-deploy-triggered.yml/dispatches ^
                                         -d "{\"ref\":\"main\",\"inputs\":{\"deployment_tag\":\"jenkins-build-${BUILD_NUMBER}\",\"environment\":\"production\"}}"
                                     
-                                    echo ✅ GitHub Actions deployment workflow triggered successfully!
-                                    echo 🌐 Monitor deployment at: https://github.com/DwarkeshNasit99/CICD-Assignment3-8985836_New/actions
-                                    echo 💡 GitHub Actions will handle: Fresh Build → Package → Deploy to Azure
+                                    echo GitHub Actions deployment workflow triggered successfully
+                                    echo Monitor deployment at: https://github.com/DwarkeshNasit99/CICD-Assignment3-8985836_New/actions
+                                    echo GitHub Actions will handle: Fresh Build, Package, Deploy to Azure
                                 """
                             }
                         } else {
-                            echo '📦 Using ZIP deployment (fallback - has network connectivity issues)...'
+                            echo 'Using ZIP deployment (fallback method)'
                             
-                            // Original ZIP deployment method (kept as fallback only)
                             bat """
-                                echo ⚠️ Using ZIP deployment fallback method
-                                echo 📁 Function App: %FUNCTION_APP_NAME%
-                                echo 📁 Resource Group: %RESOURCE_GROUP%
-                                echo 📦 Package: %DEPLOYMENT_PACKAGE%
+                                echo Deploying to Azure Function App: %FUNCTION_APP_NAME%
+                                echo Resource Group: %RESOURCE_GROUP%
+                                echo Package: %DEPLOYMENT_PACKAGE%
                                 
-                                REM Deploy using zip deployment (has known network issues)
                                 az functionapp deployment source config-zip --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --src %DEPLOYMENT_PACKAGE% --build-remote true
                                 
-                                echo ZIP deployment attempt completed!
-                                
-                                REM Get function URL
-                                echo Getting function URL...
+                                echo ZIP deployment completed
                                 az functionapp function show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --function-name httpTrigger --query "invokeUrlTemplate" --output tsv || echo Could not retrieve function URL
                             """
                         }
                     }
                     
-                    echo '✅ Deployment completed successfully!'
+                    echo 'Deployment process completed'
                 }
             }
             post {
-                success {
-                    echo '✅ Deploy stage completed successfully'
-                    script {
-                        // Get the function URL for verification (Windows)
-                        try {
-                            def functionUrl = bat(
-                                script: """
-                                    az functionapp function show --resource-group ${RESOURCE_GROUP} --name ${FUNCTION_APP_NAME} --function-name httpTrigger --query "invokeUrlTemplate" --output tsv 2>nul || echo URL not available
-                                """,
-                                returnStdout: true
-                            ).trim()
-                            
-                            if (functionUrl && !functionUrl.contains("URL not available")) {
-                                echo "🌐 Function URL: ${functionUrl}"
-                            }
-                        } catch (Exception e) {
-                            echo "Could not retrieve function URL: ${e.message}"
-                        }
-                    }
-                }
-                failure {
-                    echo '❌ Deploy stage failed'
-                }
                 always {
-                    // Logout from Azure
-                    bat 'az logout || echo "Logout failed but continuing"'
+                    bat 'az logout || echo "Logout completed"'
                 }
             }
         }
@@ -421,113 +206,90 @@ pipeline {
             }
             steps {
                 script {
-                    echo '🔍 Verifying ZIP deployment...'
-                    echo '📝 Note: GitHub Actions deployment handles its own verification'
+                    echo 'Verifying ZIP deployment'
                     
-                    // Login again for verification (Windows)
+                    // Login for verification
                     bat '''
                         az login --service-principal --username %AZURE_CLIENT_ID% --password %AZURE_CLIENT_SECRET% --tenant %AZURE_TENANT_ID%
                         az account set --subscription %AZURE_SUBSCRIPTION_ID%
                     '''
                     
-                    // Check function app status (Windows)
+                    // Check function app status
                     bat """
-                        echo Checking Function App status...
+                        echo Checking Function App status
                         az functionapp show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --query "{name:name,state:state,hostNames:defaultHostName}" --output table
-                        
-                        echo Checking function runtime status...
-                        az functionapp config show --resource-group %RESOURCE_GROUP% --name %FUNCTION_APP_NAME% --query "{nodeVersion:nodeVersion,appSettings:appSettings}" --output json || echo Failed to get config
                     """
                     
-                    // Wait for function deployment to complete (Windows PowerShell with retry logic)
+                    // Check for functions
                     powershell '''
-                        Write-Host "🕒 Azure Functions deployment typically takes 3-5 minutes after 202 response..."
-                        Write-Host "Starting extended wait and retry process..."
-                        
+                        echo "Waiting for function to be ready"
                         $maxAttempts = 6
                         $waitSeconds = 30
                         $attempt = 1
                         $success = $false
                         
                         while ($attempt -le $maxAttempts -and -not $success) {
-                            Write-Host "⏳ Attempt $attempt of $maxAttempts - Waiting $waitSeconds seconds before checking..."
-                            Start-Sleep -Seconds $waitSeconds
-                            
-                            Write-Host "🔍 Checking if httpTrigger function is deployed..."
+                            Write-Host "Attempt $attempt of $maxAttempts"
                             
                             try {
-                                # First check if function exists in the function app
-                                $functions = az functionapp function list --name $env:FUNCTION_APP_NAME --resource-group $env:RESOURCE_GROUP --output json | ConvertFrom-Json
+                                $functions = az functionapp function list --resource-group $env:RESOURCE_GROUP --name $env:FUNCTION_APP_NAME --output json | ConvertFrom-Json
                                 
-                                if ($functions -and $functions.Count -gt 0) {
-                                    $httpTriggerFunction = $functions | Where-Object { $_.name -eq "httpTrigger" }
+                                if ($functions.Count -gt 0) {
+                                    $httpTrigger = $functions | Where-Object { $_.name -eq "httpTrigger" }
                                     
-                                    if ($httpTriggerFunction) {
-                                        Write-Host "✅ httpTrigger function found! Getting URL..."
+                                    if ($httpTrigger) {
+                                        $functionUrl = az functionapp function show --resource-group $env:RESOURCE_GROUP --name $env:FUNCTION_APP_NAME --function-name httpTrigger --query "invokeUrlTemplate" --output tsv
                                         
-                                        # Get function URL
-                                        $functionUrl = az functionapp function show --resource-group $env:RESOURCE_GROUP --name $env:FUNCTION_APP_NAME --function-name httpTrigger --query "invokeUrlTemplate" --output tsv 2>$null
-                                        
-                                        if ($functionUrl -and $functionUrl -ne "") {
-                                            Write-Host "🌐 Function URL: $functionUrl"
-                                            Write-Host "🧪 Testing function..."
+                                        if ($functionUrl) {
+                                            Write-Host "Function URL: $functionUrl"
                                             
                                             try {
-                                                $response = Invoke-WebRequest -Uri $functionUrl -Method GET -UseBasicParsing -TimeoutSec 30
+                                                $response = Invoke-WebRequest -Uri $functionUrl -UseBasicParsing
                                                 $httpStatus = $response.StatusCode
                                                 
                                                 if ($httpStatus -eq 200) {
-                                                    Write-Host "🎉 SUCCESS! Function is responding correctly (HTTP $httpStatus)"
-                                                    Write-Host "📝 Function response:"
-                                                    Write-Host $response.Content.Substring(0, [Math]::Min(500, $response.Content.Length))
+                                                    Write-Host "SUCCESS! Function is responding correctly (HTTP $httpStatus)"
                                                     $success = $true
                                                 } else {
-                                                    Write-Host "⚠️ Function returned HTTP status: $httpStatus (attempt $attempt)"
+                                                    Write-Host "Function returned HTTP status: $httpStatus (attempt $attempt)"
                                                 }
                                             } catch {
-                                                Write-Host "⚠️ Error testing function: $($_.Exception.Message) (attempt $attempt)"
+                                                Write-Host "Error testing function: $($_.Exception.Message) (attempt $attempt)"
                                             }
                                         } else {
-                                            Write-Host "⚠️ Could not retrieve function URL (attempt $attempt)"
+                                            Write-Host "Could not retrieve function URL (attempt $attempt)"
                                         }
                                     } else {
-                                        Write-Host "⚠️ httpTrigger function not found in function list (attempt $attempt)"
-                                        Write-Host "📋 Available functions: $($functions | ForEach-Object { $_.name } | Join-String -Separator ", ")"
+                                        Write-Host "httpTrigger function not found (attempt $attempt)"
                                     }
                                 } else {
-                                    Write-Host "⚠️ No functions found in function app yet (attempt $attempt)"
+                                    Write-Host "No functions found yet (attempt $attempt)"
                                 }
                             } catch {
-                                Write-Host "⚠️ Error checking functions: $($_.Exception.Message) (attempt $attempt)"
+                                Write-Host "Error checking functions: $($_.Exception.Message) (attempt $attempt)"
                             }
                             
                             if (-not $success) {
                                 $attempt++
                                 if ($attempt -le $maxAttempts) {
-                                    Write-Host "⏭️ Trying again in $waitSeconds seconds..."
+                                    Write-Host "Trying again in $waitSeconds seconds"
+                                    Start-Sleep $waitSeconds
                                 }
                             }
                         }
                         
                         if (-not $success) {
-                            Write-Host "❌ Function deployment verification failed after $maxAttempts attempts (3 minutes total)"
-                            Write-Host "💡 This might be normal - Azure deployments can take longer than expected"
-                            Write-Host "🔧 Check Azure Portal manually or wait a few more minutes and test manually"
+                            Write-Host "Function deployment verification failed after $maxAttempts attempts"
+                            Write-Host "Check Azure Portal manually or wait a few more minutes"
                         }
                     '''
                     
-                    echo '✅ Deployment verification completed!'
+                    echo 'Deployment verification completed'
                 }
             }
             post {
                 always {
-                    bat 'az logout || echo "Logout failed but continuing"'
-                }
-                success {
-                    echo '✅ Verification completed - Function is deployed and accessible'
-                }
-                failure {
-                    echo '⚠️  Verification completed with warnings'
+                    bat 'az logout || echo "Logout completed"'
                 }
             }
         }
@@ -538,31 +300,15 @@ pipeline {
             }
             steps {
                 script {
-                    echo '🔍 GitHub Actions deployment triggered successfully!'
-                    echo '📊 Deployment Status: DELEGATED TO GITHUB ACTIONS'
-                    echo ''
-                    echo '🌐 Monitor deployment progress at:'
-                    echo '   https://github.com/DwarkeshNasit99/CICD-Assignment3-8985836_New/actions'
-                    echo ''
-                    echo '🔧 GitHub Actions workflow will:'
-                    echo '   ✅ Checkout fresh code'
-                    echo '   ✅ Install dependencies'
-                    echo '   ✅ Run tests'
-                    echo '   ✅ Package function'
-                    echo '   ✅ Deploy to Azure'
-                    echo '   ✅ Verify deployment'
-                    echo ''
-                    echo '🏷️ Jenkins Build Tag: jenkins-build-${BUILD_NUMBER}'
-                    echo '🎯 Target Function App: cicd-fn-helloworld-canadacentral'
-                    echo '📍 Environment: production'
-                    echo ''
-                    echo '💡 Jenkins CI/CD responsibilities completed!'
-                    echo '🚀 Azure deployment in progress via GitHub Actions...'
-                }
-            }
-            post {
-                success {
-                    echo '✅ GitHub Actions deployment workflow triggered - Monitor via GitHub Actions tab'
+                    echo 'GitHub Actions deployment triggered successfully'
+                    echo 'Deployment Status: DELEGATED TO GITHUB ACTIONS'
+                    echo 'Monitor deployment progress at: https://github.com/DwarkeshNasit99/CICD-Assignment3-8985836_New/actions'
+                    echo 'GitHub Actions workflow will: Checkout fresh code, Install dependencies, Run tests, Package function, Deploy to Azure, Verify deployment'
+                    echo "Jenkins Build Tag: jenkins-build-${BUILD_NUMBER}"
+                    echo "Target Function App: cicd-fn-helloworld-canadacentral"
+                    echo "Environment: production"
+                    echo 'Jenkins CI/CD responsibilities completed'
+                    echo 'Azure deployment in progress via GitHub Actions'
                 }
             }
         }
@@ -570,77 +316,32 @@ pipeline {
     
     post {
         always {
-            echo '🧹 Cleaning up workspace...'
-            
-            // TEMPORARILY COMMENTED OUT - Testing deployment timing
-            // Clean up deployment files - wrap in node context
-            script {
-                echo "⚠️ Cleanup temporarily disabled to test Azure deployment timing"
-                echo "Deploy folder and zip file will remain for debugging"
-                
-                try {
-                    // Archive logs only
-                    if (fileExists('npm-debug.log')) {
-                        archiveArtifacts artifacts: 'npm-debug.log', allowEmptyArchive: true
-                    }
-                } catch (Exception e) {
-                    echo "Archiving failed: ${e.message}"
-                }
-            }
-            
-            /*
-            // ORIGINAL CLEANUP CODE - RE-ENABLE LATER
+            echo 'Cleaning up workspace'
             script {
                 try {
                     node {
-                        bat """
-                            if exist ${DEPLOYMENT_PACKAGE} del /q ${DEPLOYMENT_PACKAGE}
-                            if exist deploy rmdir /s /q deploy
-                        """
-                        
-                        // Archive logs
-                        if (fileExists('npm-debug.log')) {
-                            archiveArtifacts artifacts: 'npm-debug.log', allowEmptyArchive: true
+                        if (fileExists("${DEPLOYMENT_PACKAGE}")) {
+                            bat "del /q ${DEPLOYMENT_PACKAGE}"
+                        }
+                        if (fileExists('deploy')) {
+                            bat 'rmdir /s /q deploy'
                         }
                     }
                 } catch (Exception e) {
                     echo "Cleanup failed: ${e.message}"
                 }
             }
-            */
         }
         
         success {
-            echo '''
-            🎉 ===================================
-            🎉 CI/CD PIPELINE COMPLETED SUCCESSFULLY!
-            🎉 ===================================
-            ✅ Build: Completed
-            ✅ Test: All tests passed  
-            ✅ Package: Created successfully
-            ✅ Deploy: Deployed to Azure Functions
-            ✅ Verify: Function is accessible
-            
-            Your Azure Function is now live! 🚀
-            '''
+            echo 'Pipeline completed successfully'
+            echo 'Function deployment process completed'
         }
         
         failure {
-            echo '''
-            ❌ ===================================
-            ❌ CI/CD PIPELINE FAILED
-            ❌ ===================================
-            Please check the logs above for details.
-            Common issues:
-            - Azure credentials not configured
-            - Resource group or function app name incorrect
-            - Network connectivity issues
-            - Test failures
-            '''
-        }
-        
-        unstable {
-            echo '⚠️ Pipeline completed with warnings - please review the logs'
+            echo 'Pipeline failed'
+            echo 'Please check the logs above for details'
+            echo 'Common issues: Azure credentials, Resource group or function app name, Network connectivity, Test failures'
         }
     }
 }
